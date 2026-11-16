@@ -311,8 +311,11 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: openwrt/.ccache
-        key: ccache-${{ github.event.inputs.profile }}-${{ hashFiles('upstream_lock.txt') }}
+        # GitHub cache entries are immutable, so use a per-run key to allow
+        # updating the cache after every build (including failed ones).
+        key: ccache-${{ github.event.inputs.profile }}-${{ hashFiles('upstream_lock.txt') }}-${{ github.run_id }}
         restore-keys: |
+          ccache-${{ github.event.inputs.profile }}-${{ hashFiles('upstream_lock.txt') }}-
           ccache-${{ github.event.inputs.profile }}-
 
     - name: Compile the firmware
@@ -335,7 +338,7 @@ jobs:
       uses: actions/cache/save@v4
       with:
         path: openwrt/.ccache
-        key: ccache-${{ github.event.inputs.profile }}-${{ hashFiles('upstream_lock.txt') }}
+        key: ccache-${{ github.event.inputs.profile }}-${{ hashFiles('upstream_lock.txt') }}-${{ github.run_id }}
 
     - name: Get kernel version
       run: |
