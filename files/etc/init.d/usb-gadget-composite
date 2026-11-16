@@ -1,0 +1,131 @@
+#!/bin/sh /etc/rc.common
+# Composite USB gadget: RNDIS network + ADB.
+#
+# The stock adbd init script only starts the adbd daemon; it does not create
+# the configfs gadget.  This service creates one gadget with both functions so
+# Windows/Linux see a USB network adapter and adb can still be used for
+# recovery.
+#
+# START=81 runs after adbd (START=80).  If adbd started before FunctionFS was
+# mounted it will have failed; start() stops it, mounts FunctionFS, starts
+# adbd again, and only then binds the UDC.
+
+START=81
+STOP=10
+
+GADGET=/sys/kernel/config/usb_gadget/openstick
+FFS_MNT=/dev/usb-ffs/adb
+
+log() {
+	logger -t usb-gadget-composite "$@"
+}
+
+cleanup() {
+	[ -e "$GADGET/UDC" ] && echo "" > "$GADGET/UDC" 2>/dev/null
+	if grep -q " $FFS_MNT " /proc/mounts; then
+		umount "$FFS_MNT" 2>/dev/null
+	fi
+
+	# configfs does not support recursive unlink; remove symlinks first, then
+	# remove the now-empty directories in reverse creation order.
+	rm -f "$GADGET/os_desc/c.1" 2>/dev/null
+	rm -f "$GADGET/configs/c.1/rndis.usb0" 2>/dev/null
+	rm -f "$GADGET/configs/c.1/ffs.adb" 2>/dev/null
+	rmdir "$GADGET/configs/c.1/strings/0x409" 2>/dev/null
+	rmdir "$GADGET/configs/c.1" 2>/dev/null
+	rmdir "$GADGET/functions/rndis.usb0" 2>/dev/null
+	rmdir "$GADGET/functions/ffs.adb" 2>/dev/null
+	rmdir "$GADGET/os_desc" 2>/dev/null
+	rmdir "$GADGET/strings/0x409" 2>/dev/null
+	rmdir "$GADGET" 2>/dev/null
+	rmdir "$FFS_MNT" 2>/dev/null
+}
+
+start() {
+	modprobe libcomposite 2>/dev/null
+	modprobe usb_f_fs 2>/dev/null
+	modprobe usb_f_rndis 2>/dev/null
+
+	mkdir -p /sys/kernel/config
+	if ! grep -q " /sys/kernel/config " /proc/mounts; then
+		mount -t configfs none /sys/kernel/config 2>/dev/null
+	fi
+	if [ ! -d /sys/kernel/config/usb_gadget ]; then
+		log "configfs not mounted"
+		return 1
+	fi
+
+	if [ -s "$GADGET/UDC" ]; then
+		return 0
+	fi
+
+	# Stop adbd before tearing down/recreating the gadget.
+	/etc/init.d/adbd stop 2>/dev/null
+	cleanup
+
+	mkdir -p "$GADGET" || return 1
+	echo 0x1d6b > "$GADGET/idVendor"
+	echo 0x0104 > "$GADGET/idProduct"
+	echo 0x0100 > "$GADGET/bcdDevice"
+	echo 0x0200 > "$GADGET/bcdUSB"
+
+	mkdir -p "$GADGET/strings/0x409"
+	echo "openstick" > "$GADGET/strings/0x409/serialnumber"
+	echo "OpenStick" > "$GADGET/strings/0x409/manufacturer"
+	echo "OpenStick RNDIS+ADB" > "$GADGET/strings/0x409/product"
+
+	mkdir -p "$GADGET/configs/c.1/strings/0x409"
+	echo "RNDIS+ADB" > "$GADGET/configs/c.1/strings/0x409/configuration"
+	echo 250 > "$GADGET/configs/c.1/MaxPower"
+
+	mkdir -p "$GADGET/functions/ffs.adb"
+	mkdir -p "$GADGET/functions/rndis.usb0"
+	# RNDIS must be the first interface for some Windows RNDIS drivers.
+	ln -s "$GADGET/functions/rndis.usb0" "$GADGET/configs/c.1/rndis.usb0" 2>/dev/null
+	ln -s "$GADGET/functions/ffs.adb" "$GADGET/configs/c.1/ffs.adb" 2>/dev/null
+
+	# Microsoft OS descriptors help Windows bind RNDIS automatically.
+	mkdir -p "$GADGET/os_desc"
+	echo 1 > "$GADGET/os_desc/use" 2>/dev/null
+	echo 0xcd > "$GADGET/os_desc/b_vendor_code" 2>/dev/null
+	printf 'MSFT100' > "$GADGET/os_desc/qw_sign" 2>/dev/null
+	ln -s "$GADGET/configs/c.1" "$GADGET/os_desc/c.1" 2>/dev/null
+
+	mkdir -p "$FFS_MNT"
+	if ! mount -t functionfs adb "$FFS_MNT"; then
+		log "failed to mount functionfs"
+		cleanup
+		return 1
+	fi
+
+	# adbd opens FunctionFS ep0 and writes the ADB descriptors before the
+	# gadget is bound to the UDC.
+	/etc/init.d/adbd start 2>/dev/null
+	i=0
+	while [ ! -e "$FFS_MNT/ep0" ] && [ "$i" -lt 20 ]; do
+		sleep 0.5
+		i=$((i + 1))
+	done
+
+	udc="$(ls /sys/class/udc 2>/dev/null | head -n 1)"
+	if [ -z "$udc" ]; then
+		log "no UDC found"
+		cleanup
+		return 1
+	fi
+	if ! echo "$udc" > "$GADGET/UDC"; then
+		log "failed to bind UDC $udc"
+		cleanup
+		return 1
+	fi
+
+	sleep 1
+	ip link set usb0 up 2>/dev/null
+	ip link set usb0 master br-lan 2>/dev/null
+	log "bound $udc (RNDIS + ADB)"
+}
+
+stop() {
+	/etc/init.d/adbd stop 2>/dev/null
+	cleanup
+}

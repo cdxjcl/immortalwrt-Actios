@@ -155,7 +155,7 @@ jobs:
 
 
     - name:  files
-      run: cp -r files openwrt/files
+      run: cp -a files openwrt/files
 
     - name: Copy local package overlay
       run: |
@@ -255,10 +255,14 @@ jobs:
        cd openwrt
        make defconfig
        
-    - name: Verify libffi config
+    - name: Verify required config
       run: |
         cd openwrt
         grep -q '^CONFIG_PACKAGE_libffi=y$' .config
+        grep -q '^CONFIG_PACKAGE_kmod-tcp-bbr=y$' .config
+        grep -q '^CONFIG_PACKAGE_wpad-openssl=y$' .config
+        test -x files/etc/init.d/usb-gadget-composite
+        test -x files/etc/uci-defaults/99-usb-gadget-composite
 
     - name: Download package
       id: package

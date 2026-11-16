@@ -1,0 +1,4 @@
+#!/bin/sh
+# Enable the composite USB gadget service on first boot.
+/etc/init.d/usb-gadget-composite enable
+exit 0
