@@ -162,6 +162,7 @@ jobs:
         if [ -d package ]; then
           cp -a package/. openwrt/package/
         fi
+        test -f openwrt/package/libs/libffi/Makefile
 
     - name: Load custom feeds
       run: |
@@ -254,6 +255,11 @@ jobs:
        cd openwrt
        make defconfig
        
+    - name: Verify libffi config
+      run: |
+        cd openwrt
+        grep -q '^CONFIG_PACKAGE_libffi=y$' .config
+
     - name: Download package
       id: package
       run: |
