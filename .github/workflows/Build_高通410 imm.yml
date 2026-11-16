@@ -35,8 +35,8 @@ on:
         description: ' ↓ 选择上游源码仓库 ↓ '
         type: choice
         options:
-          - lkiuyu/immortalwrt
-        default: lkiuyu/immortalwrt
+          - cdxjcl/immortalwrt
+        default: cdxjcl/immortalwrt
         required: true
       custom_hash:
         description: ' ↓ 指定 hash（默认不用填写）↓ '
