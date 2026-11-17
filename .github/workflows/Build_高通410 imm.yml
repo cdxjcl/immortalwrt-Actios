@@ -265,6 +265,7 @@ jobs:
         test -x files/etc/uci-defaults/99-usb-g1
 
     - name: Restore dl cache
+      id: dl-cache
       uses: actions/cache/restore@v4
       with:
         path: openwrt/dl
@@ -281,7 +282,7 @@ jobs:
         find dl -size -1024c -exec rm -f {} \;
 
     - name: Save dl cache
-      if: always()
+      if: steps.dl-cache.outputs.cache-hit != 'true'
       continue-on-error: true
       uses: actions/cache/save@v4
       with:
