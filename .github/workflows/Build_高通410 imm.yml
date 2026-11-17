@@ -223,8 +223,31 @@ jobs:
 
         # 检测是否选了 turboacc，如果选了则先执行安装脚本
         if echo "$PACKAGES" | grep -qw "luci-app-turboacc"; then
-          echo "⚡ 检测到 luci-app-turboacc，执行 turboacc 安装脚本..."
-          curl -sSL https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh || echo "⚠️ turboacc 脚本执行失败，跳过"
+          echo "⚡ 检测到 luci-app-turboacc，执行 TurboACC 安装脚本..."
+
+          curl --fail --show-error --location \
+            https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh \
+            -o add_turboacc.sh
+
+          bash add_turboacc.sh
+
+          # 上游已有 Full Cone 补丁 002；TurboACC 复制同功能的 100 补丁会重复应用。
+          NFT_PATCH_DIR="package/network/utils/nftables/patches"
+          if [ -f "$NFT_PATCH_DIR/002-nftables-add-fullcone-expression-support.patch" ] && \
+             [ -f "$NFT_PATCH_DIR/100-nftables-add-fullcone-expression-support.patch" ]; then
+            echo "⚠️ 检测到重复的 Full Cone 补丁，保留上游 002，移除 TurboACC 的 100"
+            rm -f "$NFT_PATCH_DIR/100-nftables-add-fullcone-expression-support.patch"
+          fi
+
+          # Linux 6.12.85 / 6.18.60 已移除 sk_buff 的 tc_depth 字段。
+          # TurboACC 的 953 补丁仍把它当上下文，导致 kernel-headers 失败。
+          for kernel_dir in \
+            target/linux/generic/hack-6.12 \
+            target/linux/generic/hack-6.18; do
+            patch="$kernel_dir/953-net-patch-linux-kernel-to-support-shortcut-fe.patch"
+            [ -f "$patch" ] || continue
+            python3 "$GITHUB_WORKSPACE/scripts/fix_turboacc_953.py" "$patch"
+          done
         fi
 
         for pkg in $PACKAGES; do
