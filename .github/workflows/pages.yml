@@ -29,6 +29,11 @@ jobs:
 
       - name: 配置 GitHub Pages
         uses: actions/configure-pages@v5
+        with:
+          # 首次运行自动启用 Pages（GitHub Actions 作为构建源）。
+          # 如果仓库策略禁止 GITHUB_TOKEN 启用 Pages，需要手动在
+          # Settings → Pages → Build and deployment 选择 GitHub Actions。
+          enablement: true
 
       - name: 上传 docs 目录
         uses: actions/upload-pages-artifact@v3

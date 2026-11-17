@@ -1,0 +1,4 @@
+#!/bin/sh
+# Enable the g1 USB gadget fix on first boot.
+/etc/init.d/usb-g1 enable
+exit 0

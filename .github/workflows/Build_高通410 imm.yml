@@ -35,8 +35,8 @@ on:
         description: ' ↓ 选择上游源码仓库 ↓ '
         type: choice
         options:
-          - lkiuyu/immortalwrt
-        default: lkiuyu/immortalwrt
+          - cdxjcl/immortalwrt
+        default: cdxjcl/immortalwrt
         required: true
       custom_hash:
         description: ' ↓ 指定 hash（默认不用填写）↓ '
@@ -155,7 +155,7 @@ jobs:
 
 
     - name:  files
-      run: cp -r files openwrt/files
+      run: cp -a files openwrt/files
 
     - name: Copy local package overlay
       run: |
@@ -255,10 +255,22 @@ jobs:
        cd openwrt
        make defconfig
        
-    - name: Verify libffi config
+    - name: Verify required config
       run: |
         cd openwrt
         grep -q '^CONFIG_PACKAGE_libffi=y$' .config
+        grep -q '^CONFIG_PACKAGE_kmod-tcp-bbr=y$' .config
+        grep -q '^CONFIG_PACKAGE_wpad-openssl=y$' .config
+        test -x files/etc/init.d/usb-g1
+        test -x files/etc/uci-defaults/99-usb-g1
+
+    - name: Restore dl cache
+      uses: actions/cache/restore@v4
+      with:
+        path: openwrt/dl
+        key: dl-${{ github.event.inputs.profile }}-${{ hashFiles('upstream_lock.txt') }}
+        restore-keys: |
+          dl-${{ github.event.inputs.profile }}-
 
     - name: Download package
       id: package
@@ -267,6 +279,14 @@ jobs:
         make download -j4 V=s
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
+
+    - name: Save dl cache
+      if: always()
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: openwrt/dl
+        key: dl-${{ github.event.inputs.profile }}-${{ hashFiles('upstream_lock.txt') }}
 
     - name: 查看 openwrt 目录
       run: ls -la openwrt/
@@ -291,7 +311,7 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 V=s
+        make -j$(nproc)
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
@@ -334,12 +354,17 @@ jobs:
           ls -la
           exit 1
         fi
-        cp "$BOOT_IMG" flash_package/boot.img.gz
-        cp "$SYSTEM_IMG" flash_package/system.img.gz
-        # 解压供刷机脚本使用
-        gzip -dk flash_package/boot.img.gz
-        gzip -dk flash_package/system.img.gz
-        rm flash_package/boot.img.gz flash_package/system.img.gz
+        # 固件可能是 .img 或 .img.gz，统一输出为刷机脚本需要的 boot.img/system.img
+        if [[ "$BOOT_IMG" == *.gz ]]; then
+          gzip -dc "$BOOT_IMG" > flash_package/boot.img
+        else
+          cp "$BOOT_IMG" flash_package/boot.img
+        fi
+        if [[ "$SYSTEM_IMG" == *.gz ]]; then
+          gzip -dc "$SYSTEM_IMG" > flash_package/system.img
+        else
+          cp "$SYSTEM_IMG" flash_package/system.img
+        fi
         cp -r $GITHUB_WORKSPACE/刷机脚本/. flash_package/
         # 确保 bat 文件是 CRLF 换行（Windows 兼容）
         unix2dos flash_package/*.bat 2>/dev/null || sed -i 's/\r//' flash_package/*.bat && sed -i 's/$/\r/' flash_package/*.bat
