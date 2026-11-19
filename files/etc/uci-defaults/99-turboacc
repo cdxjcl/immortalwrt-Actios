@@ -1,0 +1,5 @@
+#!/bin/sh
+uci -q get turboacc.config >/dev/null || exit 0
+uci set turboacc.config.hw_flow='0'
+uci commit turboacc
+exit 0

@@ -6,8 +6,8 @@
 # 版权: (c) 2019-2024 P3TERX <https://p3terx.com>
 # 基于 MIT 开源协议，详见 /LICENSE
 
-# 修改默认IP地址
-#sed -i 's/192.168.1.1/192.168.100.1/g' package/base-files/files/bin/config_generate
+# 修改默认IP地址，避免和常见家用路由器 192.168.1.1 冲突
+sed -i 's/192\.168\.1\.1/192.168.100.1/g' package/base-files/files/bin/config_generate
 
 
 # 修改默认主题为 argon（路径不存在时跳过，不中断编译）

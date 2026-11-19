@@ -1,0 +1,41 @@
+#!/bin/sh
+# Configure the UFI-16-V3 LEDs.
+# red = power, green = WiFi link/activity, blue = cellular state.
+
+L=/sys/class/leds/green:wlan
+
+uci -q delete system.led_power
+uci set system.led_power=led
+uci set system.led_power.name='Power'
+uci set system.led_power.sysfs='red:power'
+uci set system.led_power.trigger='default-on'
+uci set system.led_power.default='1'
+
+uci -q delete system.led_wlan
+uci set system.led_wlan=led
+uci set system.led_wlan.name='WLAN'
+uci set system.led_wlan.sysfs='green:wlan'
+uci set system.led_wlan.default='0'
+
+if grep -qw netdev "$L/trigger" 2>/dev/null; then
+	uci set system.led_wlan.trigger='netdev'
+	uci set system.led_wlan.dev='phy0-ap0'
+	uci set system.led_wlan.mode='link tx rx'
+else
+	uci set system.led_wlan.trigger='phy0tx'
+fi
+
+# The qmi_wwan interface does not update netdev counters, so the blue LED is
+# driven by modem-led-status from ModemManager state instead of a netdev trigger.
+uci -q delete system.led_wan
+uci set system.led_wan=led
+uci set system.led_wan.name='4G'
+uci set system.led_wan.sysfs='blue:wan'
+uci set system.led_wan.trigger='none'
+uci set system.led_wan.default='0'
+
+uci commit system
+/etc/init.d/led restart
+/etc/init.d/modem-led-status enable
+/etc/init.d/modem-led-status restart
+exit 0

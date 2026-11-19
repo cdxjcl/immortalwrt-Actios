@@ -1,0 +1,19 @@
+#!/bin/sh
+
+# GPIO37 / KEY_RESTART on the UFI-001C.
+#
+# Short press (<5s): do nothing.
+# Long press (>=5s, released): enable the openstick-failsafe AP.
+# The default reboot/factory-reset behavior is intentionally not used.
+
+case "$ACTION" in
+	pressed)
+		return 0
+		;;
+	released)
+		[ "${SEEN:-0}" -ge 5 ] || return 0
+		/usr/sbin/openstick-failsafe start &
+		;;
+esac
+
+return 0

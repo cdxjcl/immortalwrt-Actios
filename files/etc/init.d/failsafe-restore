@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+# Restore normal WiFi before network/wifi starts if the openstick-failsafe
+# recovery AP was active at the previous shutdown.
+
+START=19
+STOP=89
+
+boot() {
+	[ -f /etc/config/wireless.failsafe-bak ] || return 0
+
+	# If the user changed the SSID while in recovery mode, keep that config
+	# (it is no longer the failsafe SSID). Otherwise restore the saved normal
+	# WiFi config.
+	if grep -q "option ssid 'openstick-failsafe'" /etc/config/wireless; then
+		cp /etc/config/wireless.failsafe-bak /etc/config/wireless
+		wifi reload
+		logger -t openstick-failsafe "normal WiFi restored on boot"
+	else
+		logger -t openstick-failsafe "keeping WiFi config set in recovery mode"
+	fi
+	rm -f /etc/config/wireless.failsafe-bak
+}

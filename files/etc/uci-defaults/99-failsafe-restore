@@ -1,0 +1,3 @@
+#!/bin/sh
+/etc/init.d/failsafe-restore enable
+exit 0

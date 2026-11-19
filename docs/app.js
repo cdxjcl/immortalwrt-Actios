@@ -301,7 +301,6 @@ const PLUGIN_CATEGORIES = [
       { pkg: "luci-app-wizard",       warn: true,         name: "网络向导",     icon: "🧙", desc: { zh: "网络配置向导",          en: "Network setup wizard" } },
       { pkg: "luci-app-vlmcsd",               name: "KMS 服务器",   icon: "🔑", desc: { zh: "Windows KMS 激活服务",  en: "KMS activation server" } },
       { pkg: "luci-app-chatgpt-web",          name: "ChatGPT Web",  icon: "🤖", desc: { zh: "ChatGPT 网页客户端",    en: "ChatGPT web client" } },
-      { pkg: "luci-app-opkg",                 name: "软件包管理",   icon: "📦", desc: { zh: "opkg 软件包管理器 UI",  en: "opkg package manager UI" } },
       { pkg: "luci-app-package-manager",      name: "包管理器",     icon: "📦", desc: { zh: "图形化包管理界面",      en: "Graphical package manager" } },
       { pkg: "nano",                           name: "nano 编辑器",  icon: "✏️", desc: { zh: "命令行文本编辑器",      en: "CLI text editor" } },
       { pkg: "curl",                           name: "curl",         icon: "🌐", desc: { zh: "命令行 HTTP 工具",      en: "CLI HTTP tool" } },

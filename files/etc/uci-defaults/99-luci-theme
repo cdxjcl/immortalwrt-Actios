@@ -1,0 +1,6 @@
+#!/bin/sh
+# Force the argon theme; the legacy design theme uses the removed Lua
+# dispatcher.__entries API and breaks the LuCI header on current LuCI.
+uci set luci.main.mediaurlbase='/luci-static/argon'
+uci commit luci
+exit 0

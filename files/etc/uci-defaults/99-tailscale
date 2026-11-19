@@ -1,0 +1,5 @@
+#!/bin/sh
+uci -q get tailscale.settings >/dev/null || exit 0
+[ -n "$(uci -q get tailscale.settings.enabled)" ] || uci set tailscale.settings.enabled='1'
+uci commit tailscale
+exit 0

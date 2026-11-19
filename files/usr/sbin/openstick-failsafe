@@ -1,0 +1,49 @@
+#!/bin/sh
+# Enable or disable the openstick-failsafe recovery AP.
+# wcn36xx does not support a second VAP, so temporarily reconfigure the
+# existing AP.  A backup is restored on the next boot by failsafe-restore.
+
+FS_SSID="openstick-failsafe"
+FS_KEY="12345678"
+CFG="/etc/config/wireless"
+BAK="/etc/config/wireless.failsafe-bak"
+
+usage() {
+	echo "usage: $0 start|stop" >&2
+	exit 2
+}
+
+start() {
+	iface="$(uci show wireless 2>/dev/null | sed -n 's/^wireless\.\([^.]*\)=wifi-iface$/\1/p' | head -n 1)"
+	[ -n "$iface" ] || {
+		logger -t openstick-failsafe "no wifi-iface found"
+		exit 1
+	}
+
+	[ -f "$BAK" ] || cp "$CFG" "$BAK"
+
+	uci set "wireless.$iface.ssid=$FS_SSID"
+	uci set "wireless.$iface.encryption=psk2"
+	uci set "wireless.$iface.key=$FS_KEY"
+	uci set "wireless.$iface.disabled=0"
+	uci commit wireless
+	wifi reload
+	logger -t openstick-failsafe "recovery AP enabled: $FS_SSID ($iface)"
+}
+
+stop() {
+	if [ -f "$BAK" ]; then
+		cp "$BAK" "$CFG"
+		rm -f "$BAK"
+		wifi reload
+		logger -t openstick-failsafe "normal WiFi restored"
+	else
+		logger -t openstick-failsafe "no backup; nothing to restore"
+	fi
+}
+
+case "${1:-}" in
+start) start ;;
+stop) stop ;;
+*) usage ;;
+esac

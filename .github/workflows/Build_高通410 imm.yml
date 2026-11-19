@@ -180,8 +180,19 @@ jobs:
         # 删除 small-package 中与系统冲突的包，避免编译报错（官方推荐操作）
         rm -rf openwrt/feeds/smpackage/{base-files,dnsmasq,firewall*,fullconenat,libnftnl,nftables,ppp,opkg,ucl,upx,vsftpd*,miniupnpd-iptables,wireless-regdb}
 
+        # LuCI 应用重复安装 core 包已有的 init/config；保留 core 服务 + GUI。
+        rm -f openwrt/feeds/smpackage/luci-app-mosdns/root/etc/init.d/mosdns
+        rm -f openwrt/feeds/smpackage/luci-app-tailscale/root/etc/init.d/tailscale
+        rm -f openwrt/feeds/smpackage/luci-app-tailscale/root/etc/config/tailscale
+
     - name: Install feeds
-      run: cd openwrt && ./scripts/feeds install -a -f
+      run: |
+        cd openwrt && ./scripts/feeds install -a -f
+        cd openwrt && ./scripts/feeds install -a -p store
+        cd openwrt && mkdir -p package/feeds/store
+        cd openwrt && for pkg in luci-app-store luci-lib-taskd luci-lib-xterm taskd; do [ -d "feeds/store/luci/$pkg" ] && ln -sfn "../../../feeds/store/luci/$pkg" "package/feeds/store/$pkg"; done
+        mkdir -p "$GITHUB_WORKSPACE/openwrt/feeds/packages/net/modemmanager/patches"
+        cp "$GITHUB_WORKSPACE"/modemmanager-patches/*.patch "$GITHUB_WORKSPACE/openwrt/feeds/packages/net/modemmanager/patches/"
 
     - name: Load custom configuration
       run: |
@@ -219,7 +230,15 @@ jobs:
         fi
 
         # 过滤掉特殊前缀，只处理真正的包名
-        PACKAGES=$(echo "$RAW" | sed 's/,/ /g' | tr ' ' '\n' | grep -v '^__ip__' | grep -v '^__hostname__' | tr '\n' ' ')
+        # appfilter/appfilter-luci 依赖不可用的 kmod-oaf，跳过以免中断编译。
+        PACKAGES=$(echo "$RAW" | sed 's/,/ /g' | tr ' ' '\n' \
+          | grep -v '^__ip__' | grep -v '^__hostname__' \
+          | grep -v '^appfilter$' | grep -v '^luci-app-appfilter$' \
+          | tr '\n' ' ' || true)
+        if printf '%s\n' "$PACKAGES" | grep -qw 'luci-app-store'; then PACKAGES="$PACKAGES xz-utils"; fi
+        if echo "$RAW" | grep -qwE 'appfilter'; then
+          echo "⚠️ 跳过 appfilter：当前 feeds 没有兼容的 kmod-oaf"
+        fi
 
         # 检测是否选了 turboacc，如果选了则先执行安装脚本
         if echo "$PACKAGES" | grep -qw "luci-app-turboacc"; then
@@ -239,15 +258,22 @@ jobs:
             rm -f "$NFT_PATCH_DIR/100-nftables-add-fullcone-expression-support.patch"
           fi
 
-          # Linux 6.12.85 / 6.18.60 已移除 sk_buff 的 tc_depth 字段。
-          # TurboACC 的 953 补丁仍把它当上下文，导致 kernel-headers 失败。
+          # TurboACC 同时复制了 lede 的 952-add 和 rebased custom 的 952-net。
+          # 两者实现同一功能；保留 lede 版本，它是 953 补丁预期的上下文。
           for kernel_dir in \
             target/linux/generic/hack-6.12 \
             target/linux/generic/hack-6.18; do
-            patch="$kernel_dir/953-net-patch-linux-kernel-to-support-shortcut-fe.patch"
-            [ -f "$patch" ] || continue
-            python3 "$GITHUB_WORKSPACE/scripts/fix_turboacc_953.py" "$patch"
+            if [ -f "$kernel_dir/952-add-net-conntrack-events-support-multiple-registrant.patch" ] && \
+               [ -f "$kernel_dir/952-net-conntrack-events-support-multiple-registrant.patch" ]; then
+              echo "⚠️ 移除重复的 TurboACC 952 conntrack 补丁：$kernel_dir"
+              rm -f "$kernel_dir/952-net-conntrack-events-support-multiple-registrant.patch"
+            fi
           done
+
+          # firewall4 2026-11-08 removed the commented defaults block used
+          # by TurboACC 001/003; rebase those two small config hunks.
+          python3 "$GITHUB_WORKSPACE/scripts/fix_turboacc_firewall4.py" \
+            package/network/config/firewall4/patches
         fi
 
         for pkg in $PACKAGES; do
@@ -284,8 +310,6 @@ jobs:
         grep -q '^CONFIG_PACKAGE_libffi=y$' .config
         grep -q '^CONFIG_PACKAGE_kmod-tcp-bbr=y$' .config
         grep -q '^CONFIG_PACKAGE_wpad-openssl=y$' .config
-        test -x files/etc/init.d/usb-g1
-        test -x files/etc/uci-defaults/99-usb-g1
 
     - name: Restore dl cache
       id: dl-cache

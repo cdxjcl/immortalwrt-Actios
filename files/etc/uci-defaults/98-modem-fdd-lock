@@ -1,0 +1,19 @@
+#!/bin/sh
+# FDD-only LTE band policy for the UFI-16-V3.
+# APN stays operator-configurable; APN matching can be disabled with
+# network.modem.apn_auto=0.
+
+uci -q set network.modem.iptype='ipv4'
+[ -n "$(uci -q get network.modem.apn_auto)" ] || \
+	uci -q set network.modem.apn_auto='1'
+uci -q commit network
+
+/etc/init.d/modem-fdd-lock enable
+/etc/init.d/modem-led-status enable
+
+# The legacy QMI helpers race ModemManager and are not needed by the
+# modemmanager proto.
+/etc/init.d/qmi-modem-410-init disable 2>/dev/null || true
+/etc/init.d/qmi_auto_activate disable 2>/dev/null || true
+
+exit 0

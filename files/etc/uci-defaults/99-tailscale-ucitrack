@@ -1,0 +1,11 @@
+#!/bin/sh
+[ -f /etc/config/ucitrack ] || touch /etc/config/ucitrack
+if ! grep -q '^config tailscale$' /etc/config/ucitrack; then
+	cat >> /etc/config/ucitrack <<'EOF'
+
+config tailscale
+	option init 'tailscale'
+	list affects 'tailscale'
+EOF
+fi
+exit 0

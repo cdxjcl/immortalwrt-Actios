@@ -1,0 +1,110 @@
+#!/bin/sh
+# Keep the UFI-16-V3 modem on FDD-LTE bands only.
+#
+# The V3 TDD PA chain (B38/B39/B40/B41) is unstable on this board: a data
+# request on a TDD cell can drop EPS or reset the modem.  Locking the modem to
+# the four FDD bands avoids that hardware path and works for CMCC/Unicom/
+# Telecom SIMs without an operator-specific band list.
+#
+# This loop also survives modem restarts: when the modem comes back with the
+# default band set, the FDD set is applied again.  It retries netifd too,
+# because ModemManager may register before the interface script is ready.
+
+BANDS="eutran-1|eutran-3|eutran-5|eutran-8"
+CLEANED_ID=""
+FAILS=0
+LAST_RECOVERY=0
+RECOVERY_COOLDOWN=60
+
+while true; do
+	id="$(mmcli -L 2>/dev/null | sed -n 's#.*Modem/\([0-9][0-9]*\).*#\1#p' | head -n1)"
+	if [ -z "$id" ]; then
+		sleep 5
+		continue
+	fi
+
+	state="$(mmcli -m "$id" -K 2>/dev/null | sed -n 's/^modem.generic.state *: //p')"
+	if [ "$state" = "disabled" ]; then
+		mmcli -m "$id" --enable >/dev/null 2>&1 || true
+		sleep 3
+	fi
+
+	# Remove a stale secondary/IMS PDP context once per modem boot.  Do not
+	# program CID 1 here: its APN is operator-specific and is owned by UCI.
+	if [ "$id" != "$CLEANED_ID" ] && [ -c /dev/wwan0at0 ]; then
+		printf 'AT+CGDCONT=2\r' > /dev/wwan0at0 2>/dev/null || true
+		CLEANED_ID="$id"
+	fi
+
+	current="$(mmcli -m "$id" -K 2>/dev/null \
+		| sed -n 's/^modem.generic.current-bands.value\[[0-9]*\] *: //p' \
+		| tr '\n' '|' | sed 's/|$//')"
+
+	if [ "$current" != "$BANDS" ]; then
+		mmcli -m "$id" --set-current-bands="$BANDS" >/dev/null 2>&1 || true
+		sleep 2
+	fi
+
+	# Optional, opt-out APN matching for the three Chinese operators.  Users
+	# with a custom APN can set network.modem.apn_auto=0.
+	if [ "$(uci -q get network.modem.apn_auto)" = "1" ]; then
+		reg="$(mmcli -m "$id" -K 2>/dev/null | sed -n 's/^modem.3gpp.registration-state *: //p')"
+		op="$(mmcli -m "$id" -K 2>/dev/null | sed -n 's/^modem.3gpp.operator-id *: //p')"
+		if [ "$reg" = "home" ] || [ "$reg" = "roaming" ]; then
+			case "$op" in
+				46000|46002|46004|46007|46008) apn="cmnet" ;;
+				46001|46006|46009) apn="3gnet" ;;
+				46003|46005|46011|46012) apn="ctnet" ;;
+				*) apn="" ;;
+			esac
+			if [ -n "$apn" ] && [ "$(uci -q get network.modem.apn)" != "$apn" ]; then
+				uci set network.modem.apn="$apn"
+				uci commit network
+			fi
+		fi
+	fi
+
+	# ModemManager can report registered before netifd has created the bearer.
+	# Retry ifup until wwan0 is actually UP and has the default route.
+	if [ "$state" = "registered" ] || [ "$state" = "connected" ]; then
+		flags="$(cat /sys/class/net/wwan0/flags 2>/dev/null || echo 0)"
+		if [ $((flags & 1)) -eq 0 ] || ! ip route 2>/dev/null | grep -q '^default .* dev wwan0'; then
+			ifup modem >/dev/null 2>&1 || true
+		fi
+
+		# Data-plane watchdog.  Do not use wwan0 RX counters: qmi_wwan/bam-dmux
+		# reports zero here.  Probe with short retries (the first packet after
+		# dormancy is often lost), require two failed rounds, then re-drive
+		# netifd instead of tearing the modem down.
+		if [ "$state" = "connected" ] && \
+		   [ $((flags & 1)) -ne 0 ] && \
+		   ip route 2>/dev/null | grep -q '^default .* dev wwan0'; then
+			probe=0
+			for _try in 1 2 3; do
+				if ping -I wwan0 -c 1 -W 2 223.5.5.5 >/dev/null 2>&1; then
+					probe=1
+					break
+				fi
+				sleep 2
+			done
+			if [ "$probe" = "1" ]; then
+				FAILS=0
+			else
+				FAILS=$((FAILS + 1))
+				logger -t modem-fdd-lock "data probe failed $FAILS/2"
+				now="$(date +%s)"
+				if [ "$FAILS" -ge 2 ] && [ $((now - LAST_RECOVERY)) -ge "$RECOVERY_COOLDOWN" ]; then
+					logger -t modem-fdd-lock "re-driving modem interface after data stall"
+					ubus call network.interface.modem up >/dev/null 2>&1 || \
+						ifup modem >/dev/null 2>&1 || true
+					ubus call network.interface.modem notify_proto \
+						'{"action":5,"available":true}' >/dev/null 2>&1 || true
+					LAST_RECOVERY="$now"
+					FAILS=0
+				fi
+			fi
+		fi
+	fi
+
+	sleep 30
+done
